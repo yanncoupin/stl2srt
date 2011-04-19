@@ -172,6 +172,10 @@ codecs.register(iso6937().search)
 class STL:
     '''A class that behaves like a file object and reads an STL file'''
 
+    GSIfields = 'CPN DFC DSC CCT LC OPT OET TPT TET TN TCD SLR CD RD RN TNB TNS TNG MNC MNR TCS TCP TCF TND DSN CO PUB EN ECD UDA'.split(' ')
+    TTIfields = 'SGN SN EBN CS TCIh TCIm TCIs TCIf TCOh TCOm TCOs TCOf VP JC CF TF'.split(' ')
+
+
     def __init__(self, pathOrFile):
         if isinstance(pathOrFile, file):
             self.file = pathOrFile
@@ -182,7 +186,7 @@ class STL:
 
     def _readGSI(self):
         self.GSI = dict(zip(
-            'CPN DFC DSC CCT LC OPT OET TPT TET TN TCD SLR CD RD RN TNB TNS TNG MNC MNR TCS TCP TCF TND DSN CO PUB EN ECD UDA'.split(' '),
+            self.GSIfields,
             struct.unpack('3s8sc2s2s32s32s32s32s32s32s16s6s6s2s5s5s3s2s2s1s8s8s1s1s3s32s32s32s75x576s', self.file.read(1024))
         ))
         GSI = self.GSI
@@ -224,7 +228,7 @@ class STL:
                 if not data:
                     raise StopIteration()
                 TTI = dict(zip(
-                    'SGN SN EBN CS TCIh TCIm TCIs TCIf TCOh TCOm TCOs TCOf VP JC CF TF'.split(' '),
+                    self.TTIfields,
                     struct.unpack('<BHBBBBBBBBBBBBB112s', data)
                 ))
                 logging.debug(TTI)
