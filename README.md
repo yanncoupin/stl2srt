@@ -1,6 +1,6 @@
 #stl2srt.py
 
-A program to convert subtitles files stored using the EBU (European Broadcasting Union) file format to the much simpler SRT file format. SRT also has the benfir of being trivial to convert to WebVTT, the [W3C](http://www.w3c.org) sanctioned subtitle format
+A program to convert subtitles files stored using the EBU (European Broadcasting Union) file format to the much simpler SRT file format. SRT also has the benefit of being trivial to convert to WebVTT, the [W3C](http://www.w3c.org) sanctioned subtitle format
 
 ## Usage
   
