@@ -3,7 +3,7 @@
 #
 # stl2srt A program to convert EBU STL subtitle files in the more common SRT format
 #
-#    Copyright (C) 2011 Yann Coupin
+#    Copyright (C) 2011-2012 Yann Coupin
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -51,8 +51,8 @@ class SRT:
 class iso6937(codecs.Codec):
     '''A class to implement the somewhat exotic iso-6937 encoding which STL files often use'''
 
-    identical = set(range(0x20, 0x7e))
-    identical |= set((0xa0, 0xa1, 0xa2, 0xa3, 0xa5, 0xa7, 0xab, 0xb0, 0xb1, 0xb2, 0xb3, 0xb5, 0xb6, 0xb7, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf))
+    identical = set(range(0x20, 0x7f))
+    identical |= set((0xa, 0xa0, 0xa1, 0xa2, 0xa3, 0xa5, 0xa7, 0xab, 0xb0, 0xb1, 0xb2, 0xb3, 0xb5, 0xb6, 0xb7, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf))
     direct_mapping = {
         0x8a: 0x000a, # line break
 
@@ -147,7 +147,7 @@ class iso6937(codecs.Codec):
             if char == 0x8f:
                 break
             count += 1
-            if not state and char in range(0x20, 0x7e):
+            if not state and char in self.identical:
                 output.append(char)
             elif not state and char in self.direct_mapping:
                 output.append(self.direct_mapping[char])
