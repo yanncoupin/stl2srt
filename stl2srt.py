@@ -167,6 +167,56 @@ class iso6937(codecs.Codec):
 
 codecs.register(iso6937().search)
 
+class RichText:
+
+    def __init__(self, use_html_tags):
+        self.tag_stack = []
+        self.opened_tags = set()
+        self.output = []
+        self.add_html_tags = use_html_tags
+
+    def write(self, string):
+        self.output.append(string)
+
+    def openTag(self, tag_name, tag_html=None):
+        if not tag_html:
+            tag_html = '<%s>' % tag_name
+        if tag_name not in self.opened_tags:
+            self.tag_stack.append((tag_name, tag_html))
+            self.opened_tags.add(tag_name)
+            if not self.add_html_tags:
+                self.output.append(' ')
+            else:
+                self.output.append(tag_html)
+
+    def closeTag(self, tag):
+        if not self.add_html_tags:
+            return
+        tag_html = '</%s>' % tag
+        if tag in self.opened_tags:
+            reopen_stack = []
+            while self.tag_stack:
+                tag_to_close = self.tag_stack.pop()
+                if tag_to_close[0] == tag:
+                    self.output.append(tag_html)
+                    self.opened_tags.remove(tag)
+                    break
+                else:
+                    reopen_stack += tag_to_close
+            for tag_to_reopen in reopen_stack:
+                self.output.append(tag_to_reopen[1])
+                self.tag_stack.append(tag_to_reopen)
+
+    def __str__(self):
+        if not self.add_html_tags:
+            return ''.join(self.output)
+
+        closing_tags = []
+        # Close all the tags still open
+        for tag in self.tag_stack[::-1]:
+            closing_tags.append('</%s>' % tag[0])
+        return ''.join(self.output + closing_tags)
+
 class STL:
     '''A class that behaves like a file object and reads an STL file'''
 
@@ -227,77 +277,40 @@ class STL:
             '#00ffff', # cyan
             '#ffffff', # white
         ]
-        tagStack = []
-        openedTags = set()
         currentColor = 7 # White is the default color
-        output = []
-
-        def openTag(tagName, tagHtml=None):
-            if not tagHtml:
-                tagHtml = '<%s>' % tagName
-            if tagName not in openedTags:
-                tagStack.append((tagName, tagHtml))
-                openedTags.add(tagName)
-                if not addHtmlTags:
-                    output.append(' ')
-                else:
-                    output.append(tagHtml)
-
-        def closeTag(tag):
-            if not addHtmlTags:
-                return
-            tagHtml = '</%s>' % tag
-            if tag in openedTags:
-                reopenStack = []
-                while tagStack:
-                    openedTag = tagStack.pop()
-                    if openedTag[0] == tag:
-                        output.append(tagHtml)
-                        openedTags.remove(tag)
-                        break
-                    else:
-                        reopenStack += openedTag
-                for tagToReopen in reopenStack:
-                    output.append(tagToReopen[1])
-                    tagStack.append(tagToReopen)
+        output = RichText(addHtmlTags)
 
         first_line = True
 
         for char in text:
             ochar = ord(char)
             if ochar == 0x80:
-                openTag('i')
+                output.openTag('i')
             elif ochar == 0x81:
-                closeTag('i')
+                output.closeTag('i')
             elif ochar == 0x82:
-                openTag('u')
+                output.openTag('u')
             elif ochar == 0x83:
-                closeTag('u')
+                output.closeTag('u')
             elif ochar == 0xe:
-                openTag('b')
+                output.openTag('b')
             elif ochar == 0xc:
-                closeTag('b')
+                output.closeTag('b')
             elif ochar in (0,1,2,3,4,5,6,7,0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17):
                 color = ochar % 0x10
                 if color != currentColor:
                     currentColor = color
-                    closeTag('font')
-                    openTag('font', '<font color="%s">' % colorCodes[color])
+                    output.closeTag('font')
+                    output.openTag('font', '<font color="%s">' % colorCodes[color])
             elif ochar == 0x8a and first_line:
-                output.append("\n")
+                output.write("\n")
                 first_line = False
             elif ochar == 0x8f:
                 break
             elif (ochar & 0x7F) >= 0x20:
-                output.append(char)
+                output.write(char)
 
-        if addHtmlTags:
-            # Close all the tags still open
-            while tagStack:
-                tag = tagStack.pop()
-                output.append('</%s>' % tag[0])
-
-        return ''.join(output)
+        return str(output)
 
     def _readTTI(self):
         while (True):
