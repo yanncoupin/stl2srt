@@ -144,8 +144,6 @@ class iso6937(codecs.Codec):
         for char in input:
             char = ord(char)
             # End of a subtitle text
-            if char == 0x8f:
-                break
             count += 1
             if not state and char in self.identical:
                 output.append(char)
@@ -175,12 +173,13 @@ class STL:
     GSIfields = 'CPN DFC DSC CCT LC OPT OET TPT TET TN TCD SLR CD RD RN TNB TNS TNG MNC MNR TCS TCP TCF TND DSN CO PUB EN ECD UDA'.split(' ')
     TTIfields = 'SGN SN EBN CS TCIh TCIm TCIs TCIf TCOh TCOm TCOs TCOf VP JC CF TF'.split(' ')
 
-
-    def __init__(self, pathOrFile):
+    def __init__(self, pathOrFile, richFormatting=False):
         if isinstance(pathOrFile, file):
             self.file = pathOrFile
         else:
             self.file = open(pathOrFile, 'rb')
+
+        self.richFormatting = richFormatting
 
         self._readGSI()
 
@@ -217,6 +216,89 @@ class STL:
     def __timecodeDecode(self, h, m, s, f):
         return 3600 * h + 60 * m + s + float(f) / self.fps
 
+    def __parseFormatting(self, text, addHtmlTags):
+        colorCodes = [
+            '#000000', # black
+            '#ff0000', # red
+            '#00ff00', # green
+            '#ffff00', # yellow
+            '#0000ff', # blue
+            '#ff00ff', # magenta
+            '#00ffff', # cyan
+            '#ffffff', # white
+        ]
+        tagStack = []
+        openedTags = set()
+        currentColor = 7 # White is the default color
+        output = []
+
+        def openTag(tagName, tagHtml=None):
+            if not tagHtml:
+                tagHtml = '<%s>' % tagName
+            if tagName not in openedTags:
+                tagStack.append((tagName, tagHtml))
+                openedTags.add(tagName)
+                if not addHtmlTags:
+                    output.append(' ')
+                else:
+                    output.append(tagHtml)
+
+        def closeTag(tag):
+            if not addHtmlTags:
+                return
+            tagHtml = '</%s>' % tag
+            if tag in openedTags:
+                reopenStack = []
+                while tagStack:
+                    openedTag = tagStack.pop()
+                    if openedTag[0] == tag:
+                        output.append(tagHtml)
+                        openedTags.remove(tag)
+                        break
+                    else:
+                        reopenStack += openedTag
+                for tagToReopen in reopenStack:
+                    output.append(tagToReopen[1])
+                    tagStack.append(tagToReopen)
+
+        first_line = True
+
+        for char in text:
+            ochar = ord(char)
+            if ochar == 0x80:
+                openTag('i')
+            elif ochar == 0x81:
+                closeTag('i')
+            elif ochar == 0x82:
+                openTag('u')
+            elif ochar == 0x83:
+                closeTag('u')
+            elif ochar == 0xe:
+                openTag('b')
+            elif ochar == 0xc:
+                closeTag('b')
+            elif ochar in (0,1,2,3,4,5,6,7,0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17):
+                color = ochar % 0x10
+                if color != currentColor:
+                    currentColor = color
+                    closeTag('font')
+                    openTag('font', '<font color="%s">' % colorCodes[color])
+            elif ochar == 0x8a and first_line:
+                output.append("\n")
+                first_line = False
+            elif ochar == 0x8f:
+                break
+            elif (ochar & 0x7F) >= 0x20:
+                output.append(char)
+
+        if addHtmlTags:
+            # Close all the tags still open
+            while tagStack:
+                tag = tagStack.pop()
+                output.append('</%s>' % tag[0])
+
+        return ''.join(output)
+
     def _readTTI(self):
         while (True):
             tci = None
@@ -238,7 +320,10 @@ class STL:
                 if not tci:
                     tci = self.__timecodeDecode(TTI['TCIh'], TTI['TCIm'], TTI['TCIs'], TTI['TCIf']) - self.startTime
                     tco = self.__timecodeDecode(TTI['TCOh'], TTI['TCOm'], TTI['TCOs'], TTI['TCOf']) - self.startTime
-                txt += TTI['TF'].decode(self.codePage).strip()
+                text = TTI['TF']
+                text = self.__parseFormatting(text, self.richFormatting)
+                text = text.decode(self.codePage).strip()
+                txt += text
                 if TTI['EBN'] == 255:
                     # skip empty subtitles and those before the start of the show
                     if txt and tci >= 0:
@@ -257,6 +342,7 @@ if __name__ == '__main__':
 
     parser = OptionParser(usage = 'usage: %prog [options] input output')
     parser.add_option('-d', '--debug', dest='debug_level', action='store_const', const=logging.DEBUG, default=logging.ERROR)
+    parser.add_option('-r', '--rich', dest='rich_formatting', action='store_true', default=False, help='Output text with some formatting, the following HTML tags are used: b i u font(color)')
 
     (options, args) = parser.parse_args()
 
@@ -266,7 +352,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=options.debug_level)
 
-    stl = STL(args[0])
+    stl = STL(args[0], options.rich_formatting)
     c = SRT(args[1])
     for sub in stl:
         (tci, tco, txt) = sub
