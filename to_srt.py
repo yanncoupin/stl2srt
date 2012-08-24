@@ -439,7 +439,7 @@ class TT:
             return name
 
         xml = ElementTree.parse(self.source)
-        for element in xml.iter():
+        for element in xml.getiterator():
             element.tag = normalize_qname(element.tag)
             for k, v in element.items():
                 new_k = normalize_qname(k)
