@@ -24,6 +24,9 @@ import struct
 import codecs
 import logging
 import unicodedata
+from xml.etree import ElementTree
+import re
+
 
 class SRT:
     '''A class that behaves like a file object and writes an SRT file'''
@@ -349,13 +352,179 @@ class STL:
     def next(self):
         return self._readTTI()
 
+class TT:
+    '''A class that behaves like a file object and reads a TT subtitle file'''
+
+    __named_colors = {
+        'black': '#000000',
+        'silver': '#c0c0c0',
+        'gray': '#808080',
+        'white': '#ffffff',
+        'maroon': '#800000',
+        'red': '#ff0000',
+        'purple': '#800080',
+        'fuchsia': '#ff00ff',
+        'magenta': '#ff00ff',
+        'green': '#008000',
+        'lime': '#00ff00',
+        'olive': '#808000',
+        'yellow': '#ffff00',
+        'navy': '#000080',
+        'blue': '#0000ff',
+        'teal': '#008080',
+        'aqua': '#00ffff',
+        'cyan': '#00ffff',
+    }
+
+    def __init__(self, source, richFormatting):
+        self.xml = ElementTree.parse(source)
+
+        self.richFormatting = richFormatting
+
+        self._parseXML()
+
+    def __parse_style(self, element):
+        style = {}
+        for k, v in element.items():
+            if k == '{http://www.w3.org/2006/10/ttaf1#styling}color':
+                if re.match(r'#\d{6}\d{2}?', v):
+                    style['color'] = v[0:7]
+                else:
+                    c = self.__named_colors.get(v)
+                    if c:
+                        style['color'] = c
+            elif k == '{http://www.w3.org/2006/10/ttaf1#styling}fontStyle':
+                style['italic'] = v == 'italic'
+            elif k == '{http://www.w3.org/2006/10/ttaf1#styling}fontWeight':
+                style['bold'] = v == 'bold'
+            elif k == '{http://www.w3.org/2006/10/ttaf1#styling}textDecoration':
+                style['underline'] = v == 'underline'
+        return style
+
+    def __process_time(self, text):
+        coefs = [3600, 60, 1]
+        time = 0.0
+
+        params = text.split(':')
+        if len(params) == 4:
+            params[2] = float(params[2]) + float(params[3]) / 30
+            del params[3]
+        for c, v in zip(coefs, params):
+            time += c*float(v)
+
+        return time
+
+    def _parseXML(self):
+        # Define style aliases
+        styles = {}
+        regions = {}
+        # Build a cache for the default styles
+        for style_tag in self.xml.findall('{http://www.w3.org/2006/10/ttaf1}head/{http://www.w3.org/2006/10/ttaf1}styling/{http://www.w3.org/2006/10/ttaf1}style'):
+            style = self.__parse_style(style_tag)
+            styles[style_tag.get('{http://www.w3.org/XML/1998/namespace}id')] = style
+
+        # Build a cache for the default style of the regions
+        for region_tag in self.xml.findall('{http://www.w3.org/2006/10/ttaf1}head/{http://www.w3.org/2006/10/ttaf1}layout/{http://www.w3.org/2006/10/ttaf1}region'):
+            region = self.__parse_style(region_tag)
+            regions[region_tag.get('{http://www.w3.org/XML/1998/namespace}id')] = region
+
+        def compute_style_tree(element):
+            style_ref = element.get('style')
+            region_ref = element.get('region')
+
+            style = {}
+            if region_ref:
+                style.update(regions[region_ref])
+            if style_ref:
+                style.update(styles[style_ref])
+            style.update(self.__parse_style(element))
+
+            return style
+
+        def styleToHtml(tag, value):
+            return {
+                'bold': ('b', '<b>'),
+                'italic': ('i', '<i>'),
+                'underline': ('u', '<u>'),
+                'color': ('font', '<font color="%s">' % value),
+            }[tag]
+
+        def openTags(output, style_pairs):
+            (before, after) = style_pairs
+            for tag in sorted(after.keys()):
+                new_value = after[tag]
+                old_value = before.get(tag, None)
+                if old_value == None and new_value:
+                    html = styleToHtml(tag, new_value)
+                    output.openTag(html[0], html[1])
+                elif old_value != new_value:
+                    if new_value:
+                        html = styleToHtml(tag, new_value)
+                        output.openTag(html[0], html[1])
+                    else:
+                        output.closeTag(styleToHtml(tag, new_value)[0])
+
+        def closeTags(output, style_pairs):
+            (before, after) = style_pairs
+            for tag in sorted(after.keys(), reverse=True):
+                new_value = after[tag]
+                old_value = before.get(tag, None)
+                if old_value == None and new_value:
+                    output.closeTag(styleToHtml(tag, new_value)[0])
+                elif old_value != new_value:
+                    if new_value:
+                        output.closeTag(styleToHtml(tag, new_value)[0])
+                    else:
+                        html = styleToHtml(tag, before[tag])
+                        output.openTag(html[0], html[1])
+
+        # Store the subs in a list
+        self.subs = []
+        for sub in self.xml.findall('{http://www.w3.org/2006/10/ttaf1}body/{http://www.w3.org/2006/10/ttaf1}div/{http://www.w3.org/2006/10/ttaf1}p'):
+            begin = self.__process_time(sub.get('begin'))
+            end = self.__process_time(sub.get('end'))
+
+            style_stack = [{'color': '#ffffff'}] # default color
+
+            content = RichText(self.richFormatting)
+
+            style_stack.append(compute_style_tree(sub))
+            openTags(content, style_stack)
+
+            def parseChildTree(element):
+                for child in element.getchildren():
+                    style_stack.append(compute_style_tree(child))
+                    openTags(content, style_stack[-2:])
+                    if child.text and child.text.strip():
+                        content.write(child.text.strip())
+                    if child.tag == '{http://www.w3.org/2006/10/ttaf1}br':
+                        content.write("\n")
+                    parseChildTree(child)
+                    if child.tail and child.tail.strip():
+                        content.write(child.tail.strip())
+                    closeTags(content, style_stack[-2:])
+                    style_stack.pop()
+
+            parseChildTree(sub)
+
+            self.subs.append((begin, end, unicode(content)))
+
+    def __iter__(self):
+        return iter(self.subs)
+
 if __name__ == '__main__':
+
     from optparse import OptionParser
     import sys
 
     parser = OptionParser(usage = 'usage: %prog [options] input output')
+    parser.set_defaults(reader_class=STL)
     parser.add_option('-d', '--debug', dest='debug_level', action='store_const', const=logging.DEBUG, default=logging.ERROR)
     parser.add_option('-r', '--rich', dest='rich_formatting', action='store_true', default=False, help='Output text with some formatting, the following HTML tags are used: b i u font(color)')
+    parser.add_option("-s", "--stl", dest="reader_class", action="store_const", const=STL,
+                            help="Set input file format as STL (default)")
+    parser.add_option("-t", "--tt", dest="reader_class", action="store_const", const=TT,
+                            help="Set input file format as TT, handles both the EBU and SMPTE variants")
 
     (options, args) = parser.parse_args()
 
@@ -365,7 +534,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=options.debug_level)
 
-    stl = STL(args[0], options.rich_formatting)
+    stl = options.reader_class(args[0], options.rich_formatting)
     c = SRT(args[1])
     for sub in stl:
         (tci, tco, txt) = sub
