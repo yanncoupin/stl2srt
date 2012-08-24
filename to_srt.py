@@ -377,7 +377,7 @@ class TT:
     }
 
     def __init__(self, source, richFormatting):
-        self.xml = ElementTree.parse(source)
+        self.source = source
 
         self.richFormatting = richFormatting
 
@@ -386,18 +386,22 @@ class TT:
     def __parse_style(self, element):
         style = {}
         for k, v in element.items():
-            if k == '{http://www.w3.org/2006/10/ttaf1#styling}color':
+            if k == '{tts}color':
                 if re.match(r'#\d{6}\d{2}?', v):
                     style['color'] = v[0:7]
                 else:
-                    c = self.__named_colors.get(v)
-                    if c:
-                        style['color'] = c
-            elif k == '{http://www.w3.org/2006/10/ttaf1#styling}fontStyle':
+                    rgb_color = re.match(r'rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', v.strip())
+                    if rgb_color:
+                        style['color'] = '#%02x%02x%02x' % (int(rgb_color.group(1)), int(rgb_color.group(2)), int(rgb_color.group(3)))
+                    else:
+                        c = self.__named_colors.get(v)
+                        if c:
+                            style['color'] = c
+            elif k == '{tts}fontStyle':
                 style['italic'] = v == 'italic'
-            elif k == '{http://www.w3.org/2006/10/ttaf1#styling}fontWeight':
+            elif k == '{tts}fontWeight':
                 style['bold'] = v == 'bold'
-            elif k == '{http://www.w3.org/2006/10/ttaf1#styling}textDecoration':
+            elif k == '{tts}textDecoration':
                 style['underline'] = v == 'underline'
         return style
 
@@ -415,16 +419,45 @@ class TT:
         return time
 
     def _parseXML(self):
+        # Normalize namespaces to a single alias. The draft namespace are still used in some file which makes searching for tags cumbersome
+        namespace_clean = {
+            'http://www.w3.org/2006/10/ttaf1': 'tt',
+            'http://www.w3.org/2006/04/ttaf1': 'tt',
+            'http://www.w3.org/ns/ttml': 'tt',
+            'http://www.w3.org/2006/10/ttaf1#styling': 'tts',
+            'http://www.w3.org/2006/04/ttaf1#styling': 'tts',
+            'http://www.w3.org/ns/ttml#styling': 'tts',
+            'http://www.w3.org/2006/10/ttaf1#parameter': 'ttp',
+            'http://www.w3.org/2006/04/ttaf1#parameter': 'ttp',
+            'http://www.w3.org/ns/ttml#parameter': 'ttp',
+        }
+        def normalize_qname(name):
+            if name[0] == '{':
+                (ns, name) = name[1:].split('}', 1)
+                ns = namespace_clean.get(ns, ns)
+                return '{%s}%s' % (ns, name)
+            return name
+
+        xml = ElementTree.parse(self.source)
+        for element in xml.iter():
+            element.tag = normalize_qname(element.tag)
+            for k, v in element.items():
+                new_k = normalize_qname(k)
+                if k != new_k:
+                    del element.attrib[k]
+                    element.attrib[new_k] = v
+
         # Define style aliases
         styles = {}
         regions = {}
+
         # Build a cache for the default styles
-        for style_tag in self.xml.findall('{http://www.w3.org/2006/10/ttaf1}head/{http://www.w3.org/2006/10/ttaf1}styling/{http://www.w3.org/2006/10/ttaf1}style'):
+        for style_tag in xml.findall('{tt}head/{tt}styling/{tt}style'):
             style = self.__parse_style(style_tag)
             styles[style_tag.get('{http://www.w3.org/XML/1998/namespace}id')] = style
 
         # Build a cache for the default style of the regions
-        for region_tag in self.xml.findall('{http://www.w3.org/2006/10/ttaf1}head/{http://www.w3.org/2006/10/ttaf1}layout/{http://www.w3.org/2006/10/ttaf1}region'):
+        for region_tag in xml.findall('{tt}head/{tt}layout/{tt}region'):
             region = self.__parse_style(region_tag)
             regions[region_tag.get('{http://www.w3.org/XML/1998/namespace}id')] = region
 
@@ -480,34 +513,44 @@ class TT:
 
         # Store the subs in a list
         self.subs = []
-        for sub in self.xml.findall('{http://www.w3.org/2006/10/ttaf1}body/{http://www.w3.org/2006/10/ttaf1}div/{http://www.w3.org/2006/10/ttaf1}p'):
+        prev_sub = None
+        content = None
+        sub_grouping = False
+        for sub in xml.findall('{tt}body/{tt}div/{tt}p'):
             begin = self.__process_time(sub.get('begin'))
             end = self.__process_time(sub.get('end'))
 
             style_stack = [{'color': '#ffffff'}] # default color
 
-            content = RichText(self.richFormatting)
+            if not prev_sub or begin != prev_sub[0] or end != prev_sub[1]:
+                content = RichText(self.richFormatting)
+                sub_grouping = False
+            else:
+                content.write("\n")
+                sub_grouping = True
 
-            style_stack.append(compute_style_tree(sub))
-            openTags(content, style_stack)
-
-            def parseChildTree(element):
-                for child in element.getchildren():
+            def parseChildTree(element_list):
+                for child in element_list:
                     style_stack.append(compute_style_tree(child))
                     openTags(content, style_stack[-2:])
                     if child.text and child.text.strip():
                         content.write(child.text.strip())
-                    if child.tag == '{http://www.w3.org/2006/10/ttaf1}br':
+                    if child.tag == '{tt}br':
                         content.write("\n")
-                    parseChildTree(child)
+                    parseChildTree(child.getchildren())
                     if child.tail and child.tail.strip():
                         content.write(child.tail.strip())
                     closeTags(content, style_stack[-2:])
                     style_stack.pop()
 
-            parseChildTree(sub)
+            parseChildTree([sub])
 
-            self.subs.append((begin, end, unicode(content)))
+            # try to regroup subtitles if possible
+            if sub_grouping:
+                self.subs[-1][2] = unicode(content)
+            else:
+                prev_sub = [begin, end, unicode(content)]
+                self.subs.append(prev_sub)
 
     def __iter__(self):
         return iter(self.subs)
