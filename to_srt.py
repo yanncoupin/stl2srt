@@ -620,8 +620,8 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=options.debug_level)
 
-    stl = options.reader_class(args[0], options.rich_formatting)
+    input = options.reader_class(args[0], options.rich_formatting)
     c = SRT(args[1])
-    for sub in stl:
+    for sub in input:
         (tci, tco, txt) = sub
         c.write(tci, tco, txt)
