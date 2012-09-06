@@ -385,6 +385,10 @@ class TT:
         self.source = source
 
         self.richFormatting = richFormatting
+        self.frameRate = 30.0
+        self.frameRateMultiplier = 1.0
+        self.subFrameRate = 1.0
+        self.tickRate = None
 
         self._parseXML()
 
@@ -414,14 +418,32 @@ class TT:
         coefs = [3600, 60, 1]
         time = 0.0
 
+        offset_match = re.match(r'(\d+)(:?\.\d+)(h|m|s|ms|f|t)', text)
+        if offset_match:
+            return float(offset_match.group(1)) * {
+                'h': 3600.0,
+                'm': 60.0,
+                's': 1.0,
+                'ms': 0.001,
+                'f': 1.0/(self.frameRate * self.frameRateMultiplier),
+                't': 1.0/self.tickRate
+            }.get(offset_match.group(2), 1.0)
         params = text.split(':')
-        if len(params) == 4:
-            params[2] = float(params[2]) + float(params[3]) / 30
-            del params[3]
-        for c, v in zip(coefs, params):
-            time += c*float(v)
-
-        return time
+        if len(params) in (3, 4):
+            if len(params) == 4:
+                frames = params[3].split('.', 2)
+                if len(frames) == 1:
+                    params[2] = float(params[2]) + float(params[3]) / (self.frameRate * self.frameRateMultiplier)
+                else:
+                    params[2] = float(params[2]) + (
+                        float(frames[0]) / self.frameRate +
+                        float(frames[1]) / (self.frameRate * self.subFrameRate)
+                    ) * self.frameRateMultiplier
+                del params[3]
+            for c, v in zip(coefs, params):
+                time += c*float(v)
+            return time
+        return 0.0
 
     def _parseXML(self):
         # Normalize namespaces to a single alias. The draft namespace are still used in some file which makes searching for tags cumbersome
@@ -455,6 +477,19 @@ class TT:
         # Define style aliases
         styles = {}
         regions = {}
+
+        root = xml.iter().next()
+        if int(root.get('{ttp}tickRate', 0)) > 0:
+            self.tickRate = int(root.get('{ttp}tickRate'))
+        if int(root.get('{ttp}frameRate', 0)) > 0:
+            self.frameRate = int(root.get('{ttp}frameRate'))
+        if int(root.get('{ttp}subFrameRate', 0)) > 0:
+            self.subFrameRate = int(root.get('{ttp}subFrameRate'))
+        if root.get('{ttp}frameRateMultiplier'):
+            num, denom = root.get('{ttp}frameRateMultiplier').split(' ')
+            self.frameRateMultiplier = float(num) / float(denom)
+        if not self.tickRate:
+            self.tickRate = self.frameRate * self.subFrameRate * self.frameRateMultiplier
 
         # Build a cache for the default styles
         for style_tag in xml.findall('{tt}head/{tt}styling/{tt}style'):
@@ -523,7 +558,10 @@ class TT:
         sub_grouping = False
         for sub in xml.findall('{tt}body/{tt}div/{tt}p'):
             begin = self.__process_time(sub.get('begin'))
-            end = self.__process_time(sub.get('end'))
+            if not sub.get('end'):
+                end = begin + self.__process_time(sub.get('dur'))
+            else:
+                end = self.__process_time(sub.get('end'))
 
             style_stack = [{'color': '#ffffff'}] # default color
 
