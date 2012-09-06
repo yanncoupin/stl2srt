@@ -236,6 +236,11 @@ class STL:
 
         self._readGSI()
 
+    def __bcdTimestampDecode(self, timestamp):
+        # BCD coded time with limited significant bits
+        safe_bytes = map(lambda x: x[0]&x[1], zip((0x2, 0xf, 0x7, 0xf, 0x7, 0xf, 0x3, 0xf), struct.unpack('8B', timestamp)))
+        return sum(map(lambda x: x[0]*x[1], zip((36000, 3600, 600, 60, 10, 0, 10.0 / self.fps, 1.0 / self.fps), safe_bytes)))
+
     def _readGSI(self):
         self.GSI = dict(zip(
             self.GSIfields,
@@ -258,12 +263,12 @@ class STL:
             '04': 'iso-8859-8',
         }[GSI['CCT']]
         self.numberOfTTI = int(GSI['TNB'])
-        self.startTime = self.__timecodeDecode(
-            int(GSI['TCF'][0:2]),
-            int(GSI['TCF'][2:4]),
-            int(GSI['TCF'][4:6]),
-            int(GSI['TCF'][6:8])
-        )
+        if GSI['TCS'] == '1':
+            # BCD coded time with limited significant bits
+
+            self.startTime = self.__bcdTimestampDecode(GSI['TCF']) - self.__bcdTimestampDecode(GSI['TCP'])
+        else:
+            self.startTime = 0.0
         logging.debug(self.__dict__)
 
     def __timecodeDecode(self, h, m, s, f):
