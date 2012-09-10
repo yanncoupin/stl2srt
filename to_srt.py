@@ -478,7 +478,7 @@ class TT:
         styles = {}
         regions = {}
 
-        root = xml.iter().next()
+        root = xml.getiterator()[0]
         if int(root.get('{ttp}tickRate', 0)) > 0:
             self.tickRate = int(root.get('{ttp}tickRate'))
         if int(root.get('{ttp}frameRate', 0)) > 0:
