@@ -418,7 +418,7 @@ class TT:
         coefs = [3600, 60, 1]
         time = 0.0
 
-        offset_match = re.match(r'(\d+)(:?\.\d+)(h|m|s|ms|f|t)', text)
+        offset_match = re.match(r'(\d+)(:?\.\d+)?(h|m|s|ms|f|t)', text)
         if offset_match:
             return float(offset_match.group(1)) * {
                 'h': 3600.0,
