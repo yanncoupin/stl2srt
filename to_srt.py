@@ -237,7 +237,11 @@ class STL:
         self._readGSI()
 
     def __bcdTimestampDecode(self, timestamp):
-        # BCD coded time with limited significant bits
+        # Special case for people that can't bother to read a spec
+        if timestamp == '________':
+            return 0.0
+
+        # BCD coded time with limited significant bits as per EBU Tech. 3097-E
         safe_bytes = map(lambda x: x[0]&x[1], zip((0x2, 0xf, 0x7, 0xf, 0x7, 0xf, 0x3, 0xf), struct.unpack('8B', timestamp)))
         return sum(map(lambda x: x[0]*x[1], zip((36000, 3600, 600, 60, 10, 1, 10.0 / self.fps, 1.0 / self.fps), safe_bytes)))
 
