@@ -253,12 +253,14 @@ class STL:
         GSI = self.GSI
         logging.debug(GSI)
         #self.gsiCodePage = 'cp%s' % GSI['CPN']
-        if GSI['DFC'] == 'STL25.01':
+        if GSI['DFC'] == 'STL24.01':
+            self.fps = 24
+        elif GSI['DFC'] == 'STL25.01':
             self.fps = 25
         elif GSI['DFC'] == 'STL30.01':
             self.fps = 30
         else:
-            raise Exception('Invalid CPN')
+            raise Exception('Invalid DFC')
         self.codePage = {
             '00': 'iso_6937-2',
             '01': 'iso-8859-5',
