@@ -46,4 +46,16 @@ This conversions can be optionally done while preserving as much formatting as p
 
 ## License
 
-This software is release under the GNU GPL v2 terms and conditions. See the GPL.txt file for the complete license text
+Starting with version 2.1 released on September 22nd, 2014, this software is now released under the Apache License, Version 2.0
+
+You may obtain a copy of the License at
+
+[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Previous versions, up to 2.0.8, were licensed under the GPL v2 terms and conditions.
